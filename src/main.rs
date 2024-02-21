@@ -1,5 +1,7 @@
 use std::{error::Error, fmt::Display, fs::File, io::Read};
 
+use temp_value::TempValue;
+
 const FILE: &str = "./data/measurements.txt";
 const MAX_CITIES: usize = 10000;
 const INVALID_LINE: &str = "Invalid line";
@@ -14,7 +16,7 @@ struct DataLine<'line> {
     /// The name of the city
     city: &'line str,
     /// The temperature recorded
-    temperature: f32,
+    temperature: TempValue,
 }
 
 impl<'a> TryFrom<&'a [u8]> for DataLine<'a> {
@@ -47,10 +49,7 @@ impl<'a> TryFrom<&'a [u8]> for DataLine<'a> {
             key,
             // SAFETY: `idx` is always in bounds
             city: unsafe { std::str::from_utf8_unchecked(&bytes[..idx]) },
-            // SAFETY: `idx` is always in bounds
-            temperature: unsafe { std::str::from_utf8_unchecked(&bytes[idx + 1..]) }
-                .parse()
-                .map_err(|_| INVALID_LINE)?,
+            temperature: temp_value::TempValue::try_from(&bytes[idx + 1..])?,
         })
     }
 }
@@ -64,11 +63,11 @@ struct CityData<'name> {
     /// The name of the city
     city: &'name str,
     /// The minimum temperature recorded
-    min: f32,
+    min: TempValue,
     /// The maximum temperature recorded
-    max: f32,
+    max: TempValue,
     /// The average temperature recorded
-    avg: f32,
+    acc: TempValue,
     /// The count of measurements
     count: usize,
 }
@@ -82,18 +81,17 @@ impl<'name> CityData<'name> {
     }
 
     /// Add a new temperature to the data
-    fn add(&mut self, value: f32) {
+    fn add(&mut self, value: TempValue) {
         self.min = self.min.min(value);
         self.max = self.max.max(value);
 
-        self.update_avg(value);
+        self.acc += value;
+        self.count += 1;
     }
 
-    /// Update the average temperature to include a new value
-    #[inline]
-    fn update_avg(&mut self, value: f32) {
-        self.count += 1;
-        self.avg = (self.avg * (self.count - 1) as f32 + value) / self.count as f32;
+    /// Calculate the average temperature
+    fn avg(&self) -> f32 {
+        std::convert::Into::<f32>::into(self.acc) / self.count as f32
     }
 
     /// Merge the data from another `CityData` into this one.
@@ -102,10 +100,8 @@ impl<'name> CityData<'name> {
         self.min = self.min.min(other.min);
         self.max = self.max.max(other.max);
 
-        let total_count = self.count + other.count;
-        self.avg =
-            (self.avg * self.count as f32 + other.avg * other.count as f32) / total_count as f32;
-        self.count = total_count;
+        self.acc += other.acc;
+        self.count += other.count;
     }
 }
 
@@ -114,7 +110,10 @@ impl Display for CityData<'_> {
         write!(
             f,
             "{}={:.1}/{:.1}/{:.1}",
-            self.city, self.min, self.avg, self.max
+            self.city,
+            self.min,
+            self.avg(),
+            self.max
         )
     }
 }
@@ -246,6 +245,77 @@ mod fnv {
 
         fn build_hasher(&self) -> Self::Hasher {
             Default::default()
+        }
+    }
+}
+
+mod temp_value {
+    use std::fmt::Display;
+
+    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
+    pub struct TempValue(i32);
+
+    /// Support the `+` operator
+    impl std::ops::Add for TempValue {
+        type Output = Self;
+
+        fn add(self, other: Self) -> Self {
+            TempValue(self.0 + other.0)
+        }
+    }
+
+    /// Support the `+=` operator
+    impl std::ops::AddAssign for TempValue {
+        fn add_assign(&mut self, other: Self) {
+            *self = *self + other;
+        }
+    }
+
+    /// Make a `TempValue` from a slice of bytes
+    impl<'num> TryFrom<&'num [u8]> for TempValue {
+        type Error = &'static str;
+
+        fn try_from(value: &'num [u8]) -> Result<Self, Self::Error> {
+            let mut is_negative = false;
+
+            // If the first byte is a `-`, the number is negative
+            // so the "number" starts at the second byte
+            let num_start = if value[0] == b'-' {
+                is_negative = true;
+                1
+            } else {
+                0
+            };
+
+            // Convert a byte to a digit (according to ASCII table)
+            let to_digit = |c: u8| (c - b'0') as i32;
+
+            // We know that all temperatures range from -99.9 to 99.9 (inclusive on both ends)
+            // and all of them have a single decimal place. So we can match the bytes as follows
+            // (starting from `num_start` to avoid the `-` if present):
+            let val = match value[num_start..] {
+                // two digits and a decimal point
+                [d, u, b'.', f] => 100 * to_digit(d) + 10 * to_digit(u) + to_digit(f),
+                // one digit and a decimal point
+                [u, b'.', f] => 10 * to_digit(u) + to_digit(f),
+                _ => return Err("Invalid temperature"),
+            };
+
+            let val = if is_negative { -val } else { val };
+            Ok(TempValue(val))
+        }
+    }
+
+    /// Turn the `TempValue` into a `f32` by dividing it by 10
+    impl From<TempValue> for f32 {
+        fn from(val: TempValue) -> Self {
+            val.0 as f32 / 10.0
+        }
+    }
+
+    impl Display for TempValue {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "{:.1}", std::convert::Into::<f32>::into(*self))
         }
     }
 }
