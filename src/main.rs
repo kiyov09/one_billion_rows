@@ -114,10 +114,7 @@ impl Display for CityData<'_> {
         write!(
             f,
             "{}={:.1}/{:.1}/{:.1}",
-            self.city,
-            self.min,
-            self.avg / self.count as f32,
-            self.max
+            self.city, self.min, self.avg, self.max
         )
     }
 }
