@@ -187,6 +187,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut results = buffer
         .split(|&byte| byte == b'\n')
+        .filter(|line| !line.is_empty())
         .filter_map(|line| DataLine::try_from(line).ok())
         .fold(&mut map, |map, line| {
             map.add(line);
