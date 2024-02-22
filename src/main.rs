@@ -49,7 +49,8 @@ impl<'a> TryFrom<&'a [u8]> for DataLine<'a> {
             key,
             // SAFETY: `idx` is always in bounds
             city: unsafe { std::str::from_utf8_unchecked(&bytes[..idx]) },
-            temperature: temp_value::TempValue::try_from(&bytes[idx + 1..])?,
+            temperature: temp_value::TempValue::try_from(&bytes[idx + 1..])
+                .map_err(|_| INVALID_LINE)?,
         })
     }
 }
