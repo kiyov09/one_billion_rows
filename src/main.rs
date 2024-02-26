@@ -244,6 +244,12 @@ mod fnv {
             // We already have a `u64` so we can just convert the bytes to a `u64`
             self.0 = u64::from_be_bytes(bytes.try_into().unwrap());
         }
+
+        // We don't want to rely on the default implementation of `write_u64` because it's
+        // based on the implementation of `write` and we already have a `u64`
+        fn write_u64(&mut self, i: u64) {
+            self.0 = i;
+        }
     }
 
     // ... and as a `std::hash::BuildHasher`
