@@ -37,13 +37,18 @@ impl<'a> TryFrom<&'a [u8]> for DataLine<'a> {
             }
 
             // SAFETY: `idx` is always in bounds
-            if unsafe { bytes.get_unchecked(idx) } == &b';' {
+            let byte = unsafe { *bytes.get_unchecked(idx) };
+
+            if byte == b';' {
                 break;
             }
 
-            fnv::fnv_hash_byte(bytes[idx], &mut key);
+            fnv::fnv_hash_byte(byte, &mut key);
             idx += 1;
         }
+
+        // Hash the length of the city name for a better chance of a unique hash
+        fnv::fnv_hash_byte(idx as u8, &mut key);
 
         Ok(DataLine {
             key,
