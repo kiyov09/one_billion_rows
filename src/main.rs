@@ -101,7 +101,6 @@ impl<'name> CityData<'name> {
     }
 
     /// Merge the data from another `CityData` into this one.
-    #[allow(dead_code)]
     fn merge(&mut self, other: &Self) {
         self.min = self.min.min(other.min);
         self.max = self.max.max(other.max);
@@ -154,11 +153,12 @@ impl<'a> CitiesMap<'a> {
     }
 
     /// Merge the data from another `CitiesMap` into this one.
-    #[allow(dead_code)]
     fn merge(&mut self, other: &Self) {
-        self.data.iter_mut().for_each(|(city, data)| {
-            if let Some(other_data) = other.data.get(city) {
+        other.data.iter().for_each(|(key, other_data)| {
+            if let Some(data) = self.data.get_mut(key) {
                 data.merge(other_data);
+            } else {
+                self.data.insert(*key, other_data.clone());
             }
         });
     }
@@ -174,6 +174,23 @@ fn print_results<'a>(results: impl Iterator<Item = &'a CityData<'a>>) {
     println!("{}{}}}", CURSOR_LEFT, CURSOR_LEFT);
 }
 
+fn process_chunck(buffer: &[u8]) -> CitiesMap {
+    // Create the map that'll store the data. This will ensure that the map has enough capacity to
+    // avoid resizing.
+    let mut map = CitiesMap::new();
+
+    buffer
+        .split(|&byte| byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| DataLine::try_from(line).ok())
+        .fold(&mut map, |map, line| {
+            map.add(line);
+            map
+        });
+
+    map
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     // Allow getting the file path from the command line (for testing purposes)
     let file_path = std::env::args().nth(1).unwrap_or_else(|| FILE.to_string());
@@ -186,22 +203,61 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut buffer: Vec<u8> = Vec::with_capacity(metadata.len() as usize);
     file.read_to_end(&mut buffer)?;
 
-    // Create the map that'll store the data. This will ensure that the map has enough capacity to
-    // avoid resizing.
-    let mut map = CitiesMap::new();
+    // Get the number of available threads
+    let thread_count = std::thread::available_parallelism()?.get();
 
-    let mut results = buffer
-        .split(|&byte| byte == b'\n')
-        .filter(|line| !line.is_empty())
-        .filter_map(|line| DataLine::try_from(line).ok())
-        .fold(&mut map, |map, line| {
-            map.add(line);
+    // Calculate the average size of the chunks
+    let chunk_size = buffer.len() / thread_count;
+
+    // Effectively making the buffer to live for 'static
+    let buffer = buffer.leak();
+
+    // To store all the threads handles
+    let mut threads = vec![];
+
+    // Mark the start of the next chunk
+    let mut start = 0;
+
+    for _ in 0..thread_count {
+        // Calculate the approximate end of the chunk
+        let end = start + chunk_size;
+
+        // Prevent the end from going over the buffer length
+        let end = end.min(buffer.len());
+
+        // Determine the actual end of the chunk by finding the next newline character to avoid
+        // splitting a line in the middle
+        let end = &buffer[end..]
+            .iter()
+            .position(|&byte| byte == b'\n')
+            .map(|pos| end + pos)
+            .unwrap_or(end);
+
+        // Define the chunk as the slice from the start to the end
+        let chunk = &buffer[start..*end];
+
+        // The start of the next chunk is the end of this one
+        start = *end;
+
+        // Spawn a new thread to process the chunk
+        threads.push(std::thread::spawn(|| process_chunck(chunk)));
+    }
+
+    // Wait for all the threads to finish and collect the results
+    let map = threads
+        .into_iter()
+        .map(|thread| thread.join().unwrap())
+        .reduce(|mut map, chunk_map| {
+            map.merge(&chunk_map);
             map
         })
-        .iter()
-        .collect::<Vec<_>>();
+        .expect("Impossible to have no results.");
 
+    // Collect the results into a `Vec` and sort them by city name
+    let mut results = map.iter().collect::<Vec<_>>();
     results.sort_by_key(|city_data| city_data.city);
+
+    // Now itereate over the results and print them
     print_results(results.into_iter());
 
     Ok(())
