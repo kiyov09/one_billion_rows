@@ -174,7 +174,9 @@ fn print_results<'a>(results: impl Iterator<Item = &'a CityData<'a>>) {
     println!("{}{}}}", CURSOR_LEFT, CURSOR_LEFT);
 }
 
-fn process_chunck(buffer: &[u8]) -> CitiesMap {
+/// Given a slice of the bytes of the file (chunk), process the data and return a `CitiesMap` with
+/// the results.
+fn process_chunk(buffer: &[u8]) -> CitiesMap {
     // Create the map that'll store the data. This will ensure that the map has enough capacity to
     // avoid resizing.
     let mut map = CitiesMap::new();
@@ -240,7 +242,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         start = *end;
 
         // Spawn a new thread to process the chunk
-        threads.push(std::thread::spawn(|| process_chunck(chunk)));
+        threads.push(std::thread::spawn(|| process_chunk(chunk)));
     }
 
     // Wait for all the threads to finish and collect the results
