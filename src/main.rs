@@ -161,11 +161,7 @@ impl<'a> CitiesMap<'a> {
     /// Merge the data from another `CitiesMap` into this one.
     fn merge(&mut self, other: &Self) {
         other.data.iter().for_each(|(key, other_data)| {
-            if let Some(data) = self.data.get_mut(key) {
-                data.merge(other_data);
-            } else {
-                self.data.insert(*key, other_data.clone());
-            }
+            self.data.entry(*key).or_default().merge(other_data);
         });
     }
 }
