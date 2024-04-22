@@ -23,29 +23,36 @@ impl<'a> TryFrom<&'a [u8]> for DataLine<'a> {
     type Error = &'static str;
 
     fn try_from(bytes: &'a [u8]) -> Result<Self, Self::Error> {
-        let mut idx = 0;
-
         // The key will be the result of applying the FNV-1a hash function to every
         // byte in the city name, so we start with the offset.
         let mut key = fnv::FNV_OFFSET;
 
-        // Loop over the bytes of the line till we get the separator (`;`)
-        loop {
-            // If we reach the end of the line without finding the separator, the line is invalid
-            if idx >= bytes.len() {
+        let bytes_len = bytes.len();
+
+        // The maximum length of the temp_value is 5 bytes (-99.9 has 5 bytes), so checking the
+        // last 6 bytes will be enough to determine the position of the `;`
+        // Also, the minimun length for the temp is 3 bytes (0.0 has 3 bytes)
+        let (idx, temp) = match &bytes[bytes_len - 6..bytes_len] {
+            b @ [_, _, b';', _, _, _] => (
+                bytes_len - 4,
+                TempValue::try_from(&b[3..]).map_err(|_| INVALID_LINE)?,
+            ),
+            b @ [_, b';', _, _, _, _] => (
+                bytes_len - 5,
+                TempValue::try_from(&b[2..]).map_err(|_| INVALID_LINE)?,
+            ),
+            b @ [b';', _, _, _, _, _] => (
+                bytes_len - 6,
+                TempValue::try_from(&b[bytes_len - 5..]).map_err(|_| INVALID_LINE)?,
+            ),
+            _ => {
                 return Err(INVALID_LINE);
             }
+        };
 
-            // SAFETY: `idx` is always in bounds
-            let byte = unsafe { *bytes.get_unchecked(idx) };
-
-            if byte == b';' {
-                break;
-            }
-
-            fnv::fnv_hash_byte(byte, &mut key);
-            idx += 1;
-        }
+        bytes[..idx]
+            .iter()
+            .for_each(|b| fnv::fnv_hash_byte(*b, &mut key));
 
         // Hash the length of the city name for a better chance of a unique hash
         fnv::fnv_hash_byte(idx as u8, &mut key);
@@ -54,8 +61,7 @@ impl<'a> TryFrom<&'a [u8]> for DataLine<'a> {
             key,
             // SAFETY: `idx` is always in bounds
             city: unsafe { std::str::from_utf8_unchecked(&bytes[..idx]) },
-            temperature: temp_value::TempValue::try_from(&bytes[idx + 1..])
-                .map_err(|_| INVALID_LINE)?,
+            temperature: temp,
         })
     }
 }
