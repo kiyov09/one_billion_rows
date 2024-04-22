@@ -114,6 +114,8 @@ impl<'name> CityData<'name> {
 
     /// Merge the data from another `CityData` into this one.
     fn merge(&mut self, other: &Self) {
+        self.city = other.city;
+
         self.min = self.min.min(other.min);
         self.max = self.max.max(other.max);
 
