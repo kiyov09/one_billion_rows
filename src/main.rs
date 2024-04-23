@@ -153,12 +153,10 @@ impl<'a> CitiesMap<'a> {
 
     /// Add a new line of data to the map
     fn add(&mut self, line: DataLine<'a>) {
-        let city_data = self
-            .data
+        self.data
             .entry(line.key)
-            .or_insert_with(|| CityData::new(line.city));
-
-        city_data.add(line.temperature);
+            .or_insert_with(|| CityData::new(line.city))
+            .add(line.temperature)
     }
 
     /// Get an iterator over the data
