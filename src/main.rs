@@ -349,24 +349,16 @@ mod temp_value {
         type Error = &'static str;
 
         fn try_from(value: &'num [u8]) -> Result<Self, Self::Error> {
-            let mut is_negative = false;
-
-            // If the first byte is a `-`, the number is negative
-            // so the "number" starts at the second byte
-            let num_start = if value[0] == b'-' {
-                is_negative = true;
-                1
-            } else {
-                0
-            };
-
             // Convert a byte to a digit (according to ASCII table)
             let to_digit = |c: u8| (c - b'0') as i32;
 
             // We know that all temperatures range from -99.9 to 99.9 (inclusive on both ends)
-            // and all of them have a single decimal place. So we can match the bytes as follows
-            // (starting from `num_start` to avoid the `-` if present):
-            let val = match value[num_start..] {
+            // and all of them have a single decimal place. So we can match the bytes as follows:
+            let val = match value[..] {
+                // a minus sign follow by two digits and a decimal point
+                [b'-', d, u, b'.', f] => -(100 * to_digit(d) + 10 * to_digit(u) + to_digit(f)),
+                // a minus sign follow by one digit and a decimal point
+                [b'-', u, b'.', f] => -(10 * to_digit(u) + to_digit(f)),
                 // two digits and a decimal point
                 [d, u, b'.', f] => 100 * to_digit(d) + 10 * to_digit(u) + to_digit(f),
                 // one digit and a decimal point
@@ -374,7 +366,6 @@ mod temp_value {
                 _ => return Err("Invalid temperature"),
             };
 
-            let val = if is_negative { -val } else { val };
             Ok(TempValue(val))
         }
     }
