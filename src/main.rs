@@ -103,7 +103,7 @@ impl<'name> CityData<'name> {
 
     /// Calculate the average temperature
     fn avg(&self) -> f32 {
-        std::convert::Into::<f32>::into(self.acc) / self.count as f32
+        Into::<f32>::into(self.acc) / self.count as f32
     }
 
     /// Merge the data from another `CityData` into this one.
@@ -124,9 +124,9 @@ impl Display for CityData<'_> {
             f,
             "{}={:.1}/{:.1}/{:.1}",
             self.city,
-            self.min,
+            Into::<f32>::into(self.min),
             self.avg(),
-            self.max
+            Into::<f32>::into(self.max)
         )
     }
 }
@@ -325,8 +325,6 @@ mod fnv {
 }
 
 mod temp_value {
-    use std::fmt::Display;
-
     #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
     pub struct TempValue(i32);
 
@@ -385,12 +383,6 @@ mod temp_value {
     impl From<TempValue> for f32 {
         fn from(val: TempValue) -> Self {
             val.0 as f32 / 10.0
-        }
-    }
-
-    impl Display for TempValue {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{:.1}", std::convert::Into::<f32>::into(*self))
         }
     }
 }
