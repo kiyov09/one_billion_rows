@@ -49,7 +49,7 @@ impl<'a> TryFrom<&'a [u8]> for DataLine<'a> {
             ),
             b @ [b';', _, _, _, _, _] => (
                 bytes_len - 6,
-                TempValue::try_from(&b[5..]).map_err(|_| INVALID_LINE)?,
+                TempValue::try_from(&b[1..]).map_err(|_| INVALID_LINE)?,
             ),
             _ => {
                 return Err(INVALID_LINE);
