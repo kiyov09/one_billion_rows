@@ -1,10 +1,4 @@
-use std::{
-    error::Error,
-    fmt::Display,
-    fs::File,
-    io::{BufReader, Read},
-    sync::{Arc, Mutex},
-};
+use std::{error::Error, fmt::Display, fs::File, os::unix::fs::FileExt};
 
 use temp_value::TempValue;
 
@@ -205,82 +199,54 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Allow getting the file path from the command line (for testing purposes)
     let file_path = std::env::args().nth(1).unwrap_or_else(|| FILE.to_string());
 
-    let file = File::open(file_path)?;
+    let file = File::open(&file_path)?;
+    let file_size = file.metadata()?.len();
 
     // Get the number of available threads
     let thread_count = std::thread::available_parallelism()?.get();
-    // let thread_count = 4;
 
     // To store all the threads handles
     let mut threads = vec![];
 
-    // A buffer reader to be used by all the threads
-    let reader_capacity = 2048 * 2048;
-    let reader = Arc::new(Mutex::new(BufReader::with_capacity(reader_capacity, file)));
+    // Calculate the size of the chunk of data each thread will process
+    let chunk_size = file.metadata()?.len() as usize / thread_count;
 
-    // Will store here the part of the chunk that we read but haven't processed yet
-    let remaining = Arc::new(Mutex::new(Vec::<u8>::with_capacity(20)));
-
-    // Create as many threads as cores we have
+    // Spawn as meany threads as available, each one processing a chunk of the file.
+    // Before spwaning the thread, we ensure that the chunk ends at a newline character to avoid
+    // having invalid lines.
+    let mut start = 0_usize;
     for _ in 0..thread_count {
-        let my_rest = Arc::clone(&remaining);
-        let my_reader = Arc::clone(&reader);
+        let mut end = start + chunk_size;
 
+        if (end as u64) < file_size {
+            let mut temp_buf = [0; 100];
+            let _ = file.read_exact_at(&mut temp_buf, end as u64);
+
+            let new_line_pos = temp_buf
+                .iter()
+                .position(|byte| byte == &b'\n')
+                .expect("Shouldn't happen");
+
+            end += new_line_pos
+        } else {
+            end = file_size as usize;
+        }
+
+        let file_path = file_path.clone();
         threads.push(std::thread::spawn(move || {
-            let mut map = CitiesMap::new();
-            let mut buffer = vec![0; reader_capacity];
+            let mut data = vec![0; end - start];
 
-            loop {
-                let local = {
-                    // Get remaining to store the part we haven't processed
-                    let mut remaining = my_rest.lock().unwrap();
+            // TODO: Need to try using a BufReader to see if it's faster but I'm not sure
+            // if it's worth it
+            let infile = File::open(file_path).unwrap();
+            let _ = infile.read_exact_at(&mut data, start as u64);
 
-                    let buffer = {
-                        // Lock the reader to read from it
-                        let mut reader = my_reader.lock().unwrap();
-
-                        let read = reader.read(&mut buffer);
-
-                        if read.is_err() {
-                            break;
-                        }
-
-                        let read = read.unwrap();
-                        if read == 0 {
-                            break;
-                        }
-
-                        &buffer[..read]
-                    };
-
-                    // We don't want to process half lines
-                    let last_new_line = buffer
-                        .iter()
-                        .rposition(|&byte| byte == b'\n')
-                        .unwrap_or(buffer.len());
-
-                    let (chunk, rest) = buffer.split_at(last_new_line);
-
-                    // Join the previous "remaining" with the new chunk
-                    let to_process = remaining
-                        .iter()
-                        .chain(chunk.iter())
-                        .copied()
-                        .collect::<Vec<_>>();
-
-                    // Store the "rest" for the next thread to pick it up
-                    remaining.clear();
-                    remaining.extend_from_slice(rest);
-
-                    // This leak allows keep referencing that data later
-                    to_process.leak()
-                };
-
-                map.merge(&process_chunk(local));
-            }
-
-            map
+            // TODO: Try scoped threads to avoid the need to leak the data
+            let data = data.leak();
+            process_chunk(data)
         }));
+
+        start = end;
     }
 
     // Wait for all the threads to finish and collect the results
