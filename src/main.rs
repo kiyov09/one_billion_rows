@@ -3,7 +3,7 @@ use std::{error::Error, fmt::Display, fs::File, os::unix::fs::FileExt};
 use temp_value::TempValue;
 
 const FILE: &str = "./data/measurements.txt";
-const MAX_CITIES: usize = 10000;
+const MAX_CITIES: usize = 10_000;
 const INVALID_LINE: &str = "Invalid line";
 const CURSOR_LEFT: &str = "\u{8}";
 
@@ -209,37 +209,39 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut threads = vec![];
 
     // Calculate the size of the chunk of data each thread will process
-    let chunk_size = file.metadata()?.len() as usize / thread_count;
+    let chunk_size = file_size / thread_count as u64;
 
     // Spawn as meany threads as available, each one processing a chunk of the file.
     // Before spwaning the thread, we ensure that the chunk ends at a newline character to avoid
     // having invalid lines.
-    let mut start = 0_usize;
+    let mut start = 0;
+
     for _ in 0..thread_count {
         let mut end = start + chunk_size;
 
-        if (end as u64) < file_size {
-            let mut temp_buf = [0; 100];
-            let _ = file.read_exact_at(&mut temp_buf, end as u64);
+        if end < file_size {
+            let mut temp_buf = [0; 30];
+            let _ = file.read_exact_at(&mut temp_buf, end);
 
             let new_line_pos = temp_buf
                 .iter()
                 .position(|byte| byte == &b'\n')
+                .map(|pos| pos as u64)
                 .expect("Shouldn't happen");
 
             end += new_line_pos
         } else {
-            end = file_size as usize;
+            end = file_size;
         }
 
         let file_path = file_path.clone();
         threads.push(std::thread::spawn(move || {
-            let mut data = vec![0; end - start];
+            let mut data = vec![0; (end - start) as usize];
 
             // TODO: Need to try using a BufReader to see if it's faster but I'm not sure
             // if it's worth it
             let infile = File::open(file_path).unwrap();
-            let _ = infile.read_exact_at(&mut data, start as u64);
+            let _ = infile.read_exact_at(&mut data, start);
 
             // TODO: Try scoped threads to avoid the need to leak the data
             let data = data.leak();
